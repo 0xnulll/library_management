@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  proto-drift:
+    name: proto stubs are up-to-date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: install backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "backend[dev]"
+
+      - name: install frontend
+        run: npm install --no-audit --no-fund
+        working-directory: frontend
+
+      - name: regenerate stubs
+        run: ./scripts/gen_proto.sh
+
+      - name: assert no drift
+        run: |
+          if ! git diff --quiet -- backend/app/grpc_gen frontend/lib/proto; then
+            echo "::error::Generated stubs are stale. Run scripts/gen_proto.sh and commit."
+            git --no-pager diff -- backend/app/grpc_gen frontend/lib/proto
+            exit 1
+          fi
+
+  backend:
+    name: backend (ruff + pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: ruff
+        run: ruff check .
+
+      - name: pytest
+        env:
+          DATABASE_URL: "sqlite:///:memory:"
+          JWT_SECRET: test-secret
+          SEED_ADMIN: "0"
+        run: pytest -q
+
+  frontend:
+    name: frontend (lint + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package.json
+
+      - name: install
+        run: npm install --no-audit --no-fund
+
+      - name: lint
+        run: npm run lint
+
+      - name: build
+        env:
+          NEXT_PUBLIC_API_BASE: http://localhost:8000
+        run: npm run build

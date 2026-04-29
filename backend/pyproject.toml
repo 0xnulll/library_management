@@ -1,0 +1,47 @@
+[project]
+name = "library-backend"
+version = "0.1.0"
+description = "Neighborhood library management API"
+requires-python = ">=3.11"
+dependencies = [
+    "grpcio>=1.66.0",
+    "grpcio-reflection>=1.66.0",
+    "protobuf>=5.27.0",
+    "sqlalchemy>=2.0.30",
+    "psycopg[binary]>=3.2.0",
+    "alembic>=1.13.0",
+    "pydantic[email]>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "bcrypt==4.0.1",
+    "pyjwt>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "grpcio-tools>=1.66.0",
+    "ruff>=0.6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["app/grpc_gen"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "N"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+markers = [
+    "file_db: use a file-backed SQLite database to allow real concurrent connections",
+]

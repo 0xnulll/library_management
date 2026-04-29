@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package library.member;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+service MemberService {
+  rpc CreateMember(CreateMemberRequest) returns (Member);
+  rpc UpdateMember(UpdateMemberRequest) returns (Member);
+  rpc GetMember(GetMemberRequest) returns (Member);
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+}
+
+message Member {
+  int64 id = 1;
+  string full_name = 2;
+  string email = 3;
+  string phone = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message CreateMemberRequest {
+  string full_name = 1;
+  string email = 2;
+  string phone = 3;
+}
+
+message UpdateMemberRequest {
+  int64 id = 1;
+  string full_name = 2;
+  string email = 3;
+  string phone = 4;
+}
+
+message GetMemberRequest {
+  int64 id = 1;
+}
+
+message ListMembersRequest {
+  library.common.Pagination pagination = 1;
+}
+
+message ListMembersResponse {
+  repeated Member members = 1;
+}

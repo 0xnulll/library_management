@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# node / next
+node_modules/
+.next/
+.turbo/
+out/
+
+# env / OS
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# editors
+.idea/
+.vscode/
+
+# misc
+coverage/
+*.log

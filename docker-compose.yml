@@ -1,0 +1,60 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: library-db
+    environment:
+      POSTGRES_DB: library
+      POSTGRES_USER: library
+      POSTGRES_PASSWORD: library
+    ports:
+      - "5432:5432"
+    volumes:
+      - library-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U library -d library"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    container_name: library-backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://library:library@db:5432/library
+      JWT_SECRET: ${JWT_SECRET:-please-change-me-in-prod}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+      GRPC_BIND: 0.0.0.0:50051
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "50051:50051"
+
+  envoy:
+    image: envoyproxy/envoy:v1.31-latest
+    container_name: library-envoy
+    depends_on:
+      - backend
+    volumes:
+      - ./envoy/envoy.yaml:/etc/envoy/envoy.yaml:ro
+    ports:
+      - "8000:8000"
+      - "9901:9901"
+    command: ["-c", "/etc/envoy/envoy.yaml", "--service-cluster", "library"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:8000
+    container_name: library-frontend
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:8000
+    depends_on:
+      - envoy
+    ports:
+      - "3000:3000"
+
+volumes:
+  library-db-data:

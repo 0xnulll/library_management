@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package library.loan;
+
+import "google/protobuf/timestamp.proto";
+import "common.proto";
+
+service LoanService {
+  rpc Borrow(BorrowRequest) returns (Loan);
+  rpc ReturnLoan(ReturnLoanRequest) returns (Loan);
+  rpc ListLoans(ListLoansRequest) returns (ListLoansResponse);
+  rpc ListLoansByMember(ListLoansByMemberRequest) returns (ListLoansResponse);
+}
+
+message Loan {
+  int64 id = 1;
+  int64 book_id = 2;
+  int64 member_id = 3;
+  google.protobuf.Timestamp borrowed_at = 4;
+  google.protobuf.Timestamp due_at = 5;
+  google.protobuf.Timestamp returned_at = 6;
+  bool is_overdue = 7;
+}
+
+message BorrowRequest {
+  int64 book_id = 1;
+  int64 member_id = 2;
+  int32 days = 3;
+}
+
+message ReturnLoanRequest {
+  int64 loan_id = 1;
+}
+
+message ListLoansRequest {
+  int64 member_id = 1;
+  int64 book_id = 2;
+  bool active_only = 3;
+  library.common.Pagination pagination = 4;
+}
+
+message ListLoansByMemberRequest {
+  int64 member_id = 1;
+}
+
+message ListLoansResponse {
+  repeated Loan loans = 1;
+}
