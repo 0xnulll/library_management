@@ -52,6 +52,20 @@ class SqlLoanRepository(BaseRepository):
         )
         return int(self._session.execute(stmt).scalar_one())
 
+    def count_active_for_books(self, book_ids: list[int]) -> dict[int, int]:
+        """Return active-loan counts for all given book IDs in a single query."""
+        if not book_ids:
+            return {}
+        stmt = (
+            select(LoanModel.book_id, func.count().label("cnt"))
+            .where(LoanModel.book_id.in_(book_ids), LoanModel.returned_at.is_(None))
+            .group_by(LoanModel.book_id)
+        )
+        rows = self._session.execute(stmt).all()
+        counts = {row.book_id: row.cnt for row in rows}
+        # books with no active loans are absent from the result; default to 0
+        return {bid: counts.get(bid, 0) for bid in book_ids}
+
     def find_active_by_book_and_member(self, book_id: int, member_id: int) -> Loan | None:
         stmt = select(LoanModel).where(
             LoanModel.book_id == book_id,

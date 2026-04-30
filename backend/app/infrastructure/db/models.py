@@ -26,9 +26,18 @@ class BookModel(Base, TimestampMixin):
     author: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     isbn: Mapped[str | None] = mapped_column(String(32), nullable=True, unique=True)
     total_copies: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Denormalized count of unreturned loans for this book.
+    # Maintained transactionally by LoanService on borrow / return — see the
+    # CHECK constraint that prevents drift below zero.
+    active_loan_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     __table_args__ = (
         CheckConstraint("total_copies >= 0", name="ck_books_total_copies_nonneg"),
+        CheckConstraint(
+            "active_loan_count >= 0", name="ck_books_active_loan_count_nonneg"
+        ),
     )
 
     loans: Mapped[list[LoanModel]] = relationship(back_populates="book")

@@ -202,3 +202,88 @@ def test_concurrent_borrow_only_one_succeeds(db, admin_user) -> None:  # noqa: A
     finally:
         s.close()
     assert active == 1
+
+
+@pytest.mark.file_db
+def test_concurrent_return_only_one_succeeds(db, admin_user) -> None:  # noqa: ARG001
+    """Two threads race to return the SAME loan. Exactly one must win.
+
+    Without the compare-and-set in ``LoanService.return_book`` both threads
+    would happily update the loan and decrement the counter twice, leaving
+    the denormalized ``active_loan_count`` permanently out of sync with the
+    real loans table.
+    """
+    settings = get_settings()
+
+    # arrange: one book, one member, one active loan
+    session = db.session()
+    try:
+        book = SqlBookRepository(session).add(
+            Book(id=None, title="ReturnRace", author="X", isbn=None, total_copies=2)
+        )
+        member = SqlMemberRepository(session).add(
+            Member(id=None, full_name="R", email="r@example.com", phone=None)
+        )
+        session.commit()
+        LoanService(
+            SqlBookRepository(session),
+            SqlMemberRepository(session),
+            SqlLoanRepository(session),
+            SystemClock(),
+            settings,
+        ).borrow(book_id=book.id, member_id=member.id)
+        session.commit()
+        loan_row = SqlLoanRepository(session).list_active_by_member(member.id)[0]
+    finally:
+        session.close()
+
+    loan_id_value = loan_row.id
+    book_id_value = book.id
+    assert loan_id_value is not None
+    assert book_id_value is not None
+
+    results: list[tuple[str, str]] = []
+    barrier = threading.Barrier(2)
+
+    def attempt() -> None:
+        barrier.wait()
+        s = db.session()
+        try:
+            service = LoanService(
+                SqlBookRepository(s),
+                SqlMemberRepository(s),
+                SqlLoanRepository(s),
+                SystemClock(),
+                settings,
+            )
+            service.return_book(loan_id_value)
+            s.commit()
+            results.append(("ok", ""))
+        except ConflictError as exc:
+            s.rollback()
+            results.append(("conflict", str(exc)))
+        except Exception as exc:
+            s.rollback()
+            results.append(("error", type(exc).__name__))
+        finally:
+            s.close()
+
+    t1 = threading.Thread(target=attempt)
+    t2 = threading.Thread(target=attempt)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    successes = [r for r in results if r[0] == "ok"]
+    assert len(successes) == 1, results
+
+    # The denormalized counter must equal the real active-loan count (= 0).
+    s = db.session()
+    try:
+        real = SqlLoanRepository(s).count_active_for_book(book_id_value)
+        denorm = SqlBookRepository(s).get(book_id_value).active_loan_count
+    finally:
+        s.close()
+    assert real == 0
+    assert denorm == 0, "denormalized counter drifted"

@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import or_, select, update
 
 from app.domain.entities import Book
+from app.domain.exceptions import ConflictError
 from app.infrastructure.db.models import BookModel
 from app.infrastructure.repositories.base_repository import BaseRepository
 
@@ -14,6 +15,7 @@ def _to_entity(row: BookModel) -> Book:
         author=row.author,
         isbn=row.isbn,
         total_copies=row.total_copies,
+        active_loan_count=row.active_loan_count,
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
@@ -26,6 +28,7 @@ class SqlBookRepository(BaseRepository):
             author=book.author,
             isbn=book.isbn,
             total_copies=book.total_copies,
+            active_loan_count=0,
         )
         self._session.add(row)
         self._session.flush()
@@ -43,6 +46,8 @@ class SqlBookRepository(BaseRepository):
         row.author = book.author
         row.isbn = book.isbn
         row.total_copies = book.total_copies
+        # active_loan_count is intentionally NOT mutated here — the source of
+        # truth is borrow/return via increment/decrement_active_loans below.
         self._session.flush()
         return _to_entity(row)
 
@@ -81,5 +86,43 @@ class SqlBookRepository(BaseRepository):
         )
         if bumped.rowcount == 0:
             return None
+        # Force re-read so SQLAlchemy's identity map sees the latest column values
+        # rather than a stale snapshot.
         row = self._session.get(BookModel, book_id)
-        return _to_entity(row) if row else None
+        if row is None:
+            return None
+        self._session.refresh(row)
+        return _to_entity(row)
+
+    # ─── denormalized counter ───────────────────────────────────────────────
+    #
+    # The hot read paths (search/get/list) read ``active_loan_count`` directly
+    # off the row instead of running ``COUNT(*)`` against ``loans``. The two
+    # methods below are the only mutators of that field; they are atomic at the
+    # SQL level and must run inside the same transaction as the corresponding
+    # loan insert/update so the counter is never observably out-of-sync.
+
+    def increment_active_loans(self, book_id: int) -> None:
+        """Atomically add 1 to active_loan_count, refusing if it would exceed
+        total_copies. Raises ConflictError if the invariant would be violated.
+        """
+        result = self._session.execute(
+            update(BookModel)
+            .where(
+                BookModel.id == book_id,
+                BookModel.active_loan_count < BookModel.total_copies,
+            )
+            .values(active_loan_count=BookModel.active_loan_count + 1)
+        )
+        if result.rowcount == 0:
+            raise ConflictError("no copies available")
+
+    def decrement_active_loans(self, book_id: int) -> None:
+        """Atomically subtract 1; never goes below zero (protected by both the
+        WHERE clause and the CHECK constraint).
+        """
+        self._session.execute(
+            update(BookModel)
+            .where(BookModel.id == book_id, BookModel.active_loan_count > 0)
+            .values(active_loan_count=BookModel.active_loan_count - 1)
+        )

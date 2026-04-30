@@ -1,17 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 
 from app.core.config import Settings
 from app.domain.entities import Loan
 from app.domain.exceptions import ConflictError, NotFoundError
-from app.infrastructure.repositories import (
-    SqlBookRepository,
-    SqlLoanRepository,
-    SqlMemberRepository,
-)
+from app.domain.repositories import BookRepository, LoanRepository, MemberRepository
 from app.services.clock import Clock
 from app.services.response_type import LoanResponse
+
+logger = logging.getLogger(__name__)
 
 
 class LoanService:
@@ -25,9 +24,9 @@ class LoanService:
 
     def __init__(
         self,
-        books: SqlBookRepository,
-        members: SqlMemberRepository,
-        loans: SqlLoanRepository,
+        books: BookRepository,
+        members: MemberRepository,
+        loans: LoanRepository,
         clock: Clock,
         settings: Settings,
     ) -> None:
@@ -52,12 +51,12 @@ class LoanService:
         if self._members.get(member_id) is None:
             raise NotFoundError(f"member {member_id} not found")
 
+        # The lock serializes concurrent borrowers of the same book.
         book = self._books.lock_for_update(book_id)
         if book is None:
             raise NotFoundError(f"book {book_id} not found")
 
-        active = self._loans.count_active_for_book(book_id)
-        if active >= book.total_copies:
+        if book.active_loan_count >= book.total_copies:
             raise ConflictError("no copies available")
 
         existing = self._loans.find_active_by_book_and_member(book_id, member_id)
@@ -74,7 +73,16 @@ class LoanService:
             due_at=now + timedelta(days=loan_days),
             returned_at=None,
         )
-        return self._to_response(self._loans.add(loan))
+        saved = self._loans.add(loan)
+        # Atomic counter bump — the WHERE clause re-checks the invariant at the
+        # SQL level, so even if the lock semantics differ across engines the
+        # database refuses to overcommit copies.
+        self._books.increment_active_loans(book_id)
+        logger.info(
+            "loan.borrowed",
+            extra={"loan_id": saved.id, "book_id": book_id, "member_id": member_id},
+        )
+        return self._to_response(saved)
 
     def return_book(self, loan_id: int) -> LoanResponse:
         loan = self._loans.get(loan_id)
@@ -83,7 +91,10 @@ class LoanService:
         if not loan.is_active:
             raise ConflictError("loan already returned")
         loan.returned_at = self._clock.now()
-        return self._to_response(self._loans.update(loan))
+        saved = self._loans.update(loan)
+        self._books.decrement_active_loans(loan.book_id)
+        logger.info("loan.returned", extra={"loan_id": loan_id, "book_id": loan.book_id})
+        return self._to_response(saved)
 
     def list_for_member(self, member_id: int) -> list[LoanResponse]:
         if self._members.get(member_id) is None:

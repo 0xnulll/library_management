@@ -73,6 +73,6 @@ def seed_admin(db: Database, settings: Settings, username: str, password: str) -
         session.commit()
     except Exception:
         session.rollback()
-        logger.warning("seed admin failed; continuing", exc_info=True)
+        logger.exception("seed_admin failed — admin user may not exist")
     finally:
         session.close()

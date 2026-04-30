@@ -11,5 +11,6 @@ class Book:
     author: str
     isbn: str | None
     total_copies: int
+    active_loan_count: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
