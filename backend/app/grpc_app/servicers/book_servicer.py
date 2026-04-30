@@ -7,7 +7,7 @@ from app.grpc_app.dto import CreateBookDTO, UpdateBookDTO
 from app.grpc_app.dto._parse import parse_or_invalid
 from app.grpc_app.servicers._session import SessionFactory, session_scope
 from app.grpc_gen import book_pb2, book_pb2_grpc
-from app.infrastructure.repositories import SqlBookRepository, SqlLoanRepository
+from app.infrastructure.repositories import SqlBookRepository
 from app.services.book_service import BookService
 
 
@@ -16,7 +16,7 @@ class BookServicer(book_pb2_grpc.BookServiceServicer):
         self._session_factory = session_factory
 
     def _service(self, session) -> BookService:
-        return BookService(SqlBookRepository(session), SqlLoanRepository(session))
+        return BookService(SqlBookRepository(session))
 
     async def CreateBook(  # noqa: N802
         self,

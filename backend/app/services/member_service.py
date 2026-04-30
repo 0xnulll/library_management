@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
+
 from app.domain.entities import Member
 from app.domain.exceptions import ConflictError, NotFoundError
-from app.infrastructure.repositories import SqlMemberRepository
+from app.domain.repositories import MemberRepository
 from app.services.response_type import MemberResponse
+
+logger = logging.getLogger(__name__)
 
 
 class MemberService:
-    def __init__(self, members: SqlMemberRepository) -> None:
+    def __init__(self, members: MemberRepository) -> None:
         self._members = members
 
     def _to_response(self, member: Member) -> MemberResponse:
@@ -23,13 +27,10 @@ class MemberService:
     def create(self, *, full_name: str, email: str, phone: str | None) -> MemberResponse:
         if self._members.get_by_email(email):
             raise ConflictError(f"member with email {email} already exists")
-        member = Member(
-            id=None,
-            full_name=full_name,
-            email=email,
-            phone=phone,
-        )
-        return self._to_response(self._members.add(member))
+        member = Member(id=None, full_name=full_name, email=email, phone=phone)
+        saved = self._members.add(member)
+        logger.info("member.created", extra={"member_id": saved.id, "email": email})
+        return self._to_response(saved)
 
     def update(
         self, member_id: int, *, full_name: str, email: str, phone: str | None
@@ -43,7 +44,9 @@ class MemberService:
         existing.full_name = full_name
         existing.email = email
         existing.phone = phone
-        return self._to_response(self._members.update(existing))
+        saved = self._members.update(existing)
+        logger.info("member.updated", extra={"member_id": member_id})
+        return self._to_response(saved)
 
     def get(self, member_id: int) -> MemberResponse:
         member = self._members.get(member_id)
