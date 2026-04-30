@@ -1,30 +1,36 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { auth, rpcMessage, setToken } from "@/lib/grpc";
+import { requireText } from "@/lib/validate";
+
+interface LoginFields {
+  username: string;
+  password: string;
+}
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<LoginFields>({ defaultValues: { username: "admin", password: "admin" } });
+
+  const onSubmit = handleSubmit(async ({ username, password }) => {
+    setServerError(null);
     try {
-      const resp = await auth.Login({ username, password });
+      const resp = await auth.Login({ username: username.trim(), password });
       setToken(resp.accessToken);
       router.replace("/dashboard");
     } catch (err) {
-      setError(rpcMessage(err, "login failed"));
-    } finally {
-      setLoading(false);
+      setServerError(rpcMessage(err, "login failed"));
     }
-  }
+  });
 
   return (
     <main className="flex min-h-screen items-center justify-center px-4">
@@ -36,34 +42,51 @@ export default function LoginPage() {
         <p className="text-sm text-slate-500">
           Default credentials are <code>admin</code> / <code>admin</code> in dev.
         </p>
+
         <label className="block">
           <span className="text-sm font-medium">Username</span>
           <input
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
+            {...register("username", { validate: (v) => requireText(v, "Username") ?? true })}
             autoComplete="username"
+            className={fieldCls(!!errors.username)}
           />
+          {errors.username && <FieldError msg={errors.username.message!} />}
         </label>
+
         <label className="block">
           <span className="text-sm font-medium">Password</span>
           <input
+            {...register("password", { validate: (v) => requireText(v, "Password") ?? true })}
             type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 outline-none focus:border-slate-500"
             autoComplete="current-password"
+            className={fieldCls(!!errors.password)}
           />
+          {errors.password && <FieldError msg={errors.password.message!} />}
         </label>
-        {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
+
+        {serverError && (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{serverError}</p>
+        )}
+
         <button
           type="submit"
-          disabled={loading}
+          disabled={isSubmitting}
           className="w-full rounded-md bg-slate-900 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          {loading ? "Signing in..." : "Sign in"}
+          {isSubmitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
     </main>
   );
+}
+
+function fieldCls(hasError: boolean) {
+  return [
+    "mt-1 w-full rounded-md border px-3 py-2 outline-none focus:border-slate-500",
+    hasError ? "border-red-400 bg-red-50" : "border-slate-300",
+  ].join(" ");
+}
+
+function FieldError({ msg }: { msg: string }) {
+  return <span className="mt-0.5 block text-xs text-red-600">{msg}</span>;
 }
